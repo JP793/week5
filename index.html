@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Map</title>
+
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+
+    <style>
+      #map {
+        height: 97vh;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+
+    <script>
+      const fetchData = async () => {
+        const geoDataUrl =
+          "https://geo.stat.fi/geoserver/wfs?service=WFS&version=2.0.0&request=GetFeature&typeName=tilastointialueet:kunta4500k&outputFormat=json&srsName=EPSG:4326";
+        const geoDataResponse = await fetch(geoDataUrl);
+        const geoData = await geoDataResponse.json();
+
+        const positiveMigrationData = await fetchMigrationData(
+          "https://statfin.stat.fi/PxWeb/sq/4bb2c735-1dc3-4c5e-bde7-2165df85e65f"
+        );
+        const negativeMigrationData = await fetchMigrationData(
+          "https://statfin.stat.fi/PxWeb/sq/944493ca-ea4d-4fd9-a75c-4975192f7b6e"
+        );
+
+        for (let i in geoData.features) {
+          let city_name = geoData.features[i].properties.name;
+          geoData.features[i].properties["positi"] =
+            positiveMigrationData[city_name] || 0;
+          geoData.features[i].properties["negati"] =
+            negativeMigrationData[city_name] || 0;
+        }
+
+        initMap(geoData);
+      };
+
+      const fetchMigrationData = async (url) => {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        let migrationCity =
+          data.dataset.dimension.Tuloalue || data.dataset.dimension.Lähtöalue;
+        let migrationCityLabels = migrationCity.category.label;
+        let migrationCityIndices = migrationCity.category.index;
+        let migrationValues = data.dataset.value;
+
+        let migrationDict = {};
+
+        for (let key in migrationCityLabels) {
+          let cityName = migrationCityLabels[key].split(" ")[2];
+          migrationDict[cityName] = migrationValues[migrationCityIndices[key]];
+        }
+
+        return migrationDict;
+      };
+
+      const initMap = (data) => {
+        let map = L.map("map", {
+          minZoom: -3
+        });
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "© OpenStreetMap contributors"
+        }).addTo(map);
+
+        let geoLayer = L.geoJSON(data, {
+          weight: 2,
+          onEachFeature: function (feature, layer) {
+            layer.bindTooltip(feature.properties.name);
+            layer.bindPopup(
+              `<ul>
+                        <li>Name: ${feature.properties.name}</li>
+                        <li>Positive migration: ${feature.properties.positi}</li>
+                        <li>Negative migration: ${feature.properties.negati}</li>
+                    </ul>`
+            );
+          },
+          style: function (feature) {
+            const positiveMigration = feature.properties.positi || 1;
+            const negativeMigration = feature.properties.negati || 1;
+            let hue = Math.pow(positiveMigration / negativeMigration, 3) * 60;
+            hue = Math.min(hue, 120);
+            return { color: `hsl(${hue}, 75%, 50%)` };
+          }
+        }).addTo(map);
+
+        map.fitBounds(geoLayer.getBounds());
+      };
+
+      fetchData();
+    </script>
+  </body>
+</html>
